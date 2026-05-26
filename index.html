@@ -2356,7 +2356,14 @@ async function fetchYahooOptionsForExpiry(ticker, expiryTs) {
 // (Source-specific data processing is inlined into each fetchFromXxx function)
 
 function processOptionsData(data) {
-  const result = data?.optionChain?.result?.[0];
+  // Support both Yahoo format (data.optionChain.result[0]) and local proxy format (data.expirationDates + data.options)
+  let result;
+  if (data?.optionChain?.result?.[0]) {
+    result = data.optionChain.result[0];
+  } else if (data?.expirationDates && data?.options) {
+    // Local proxy format
+    result = data;
+  }
   if (!result) return;
 
   // Real expiry dates from Yahoo (only includes ~12-15 nearest)
