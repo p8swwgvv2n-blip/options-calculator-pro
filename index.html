@@ -736,6 +736,40 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
   font-size: 0.6875rem;
 }
 
+/* === MANUAL IV TOGGLE (Carbon-style details/summary) === */
+.manual-iv-toggle {
+  border: 1px solid var(--seed-border);
+  background: var(--seed-surface);
+  border-radius: 0;
+}
+.manual-iv-toggle__label {
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: var(--seed-primary);
+  list-style: none;
+  transition: background 0.1s;
+}
+.manual-iv-toggle__label::-webkit-details-marker { display: none; }
+.manual-iv-toggle__label::marker { content: ''; }
+.manual-iv-toggle__label::before {
+  content: '▸ ';
+  display: inline-block;
+  transition: transform 0.15s;
+}
+.manual-iv-toggle[open] .manual-iv-toggle__label::before {
+  transform: rotate(90deg);
+}
+.manual-iv-toggle__label:hover {
+  background: color-mix(in srgb, var(--seed-primary) 8%, transparent);
+}
+.manual-iv-toggle > div {
+  padding: 0 12px 12px;
+}
+
 /* === STOCK ACTION RECOMMENDATION === */
 .stock-action {
   background: var(--seed-surface);
@@ -1565,6 +1599,14 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
           <label for="price-max">预计最高正股价</label>
           <input type="number" id="price-max" step="0.5" placeholder="如 220" />
         </div>
+        <details class="manual-iv-toggle">
+          <summary class="manual-iv-toggle__label">手动输入隐含波动率 IV（可选）</summary>
+          <div class="form-group" style="margin-top:8px;">
+            <label for="manual-iv">IV % <span style="color:var(--seed-muted);font-weight:400;">· 覆盖自动取值</span></label>
+            <input type="number" id="manual-iv" step="0.1" placeholder="如 74.2" />
+            <div class="iv-source-tag" style="margin-top:4px;">填入券商/道琼斯上的真实 IV 可显著提高定价精度</div>
+          </div>
+        </details>
         <div class="iv-source-tag" id="pricing-strike-echo">行权价请在左侧"到期日 · 行权价"区域选择或输入。</div>
         <button class="btn btn--primary" onclick="calculatePricing()" id="calc-btn" style="width:100%;margin-top:4px;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 4h16v16H4z"/><path d="M8 8h2M14 8h2M8 12h8M8 16h2M14 16h2"/></svg>
@@ -1809,12 +1851,26 @@ async function fetchData() {
     const optionsData = await fetchYahooOptions(ticker);
     processOptionsData(optionsData);
   } catch (e) {
-    console.warn('[IV] Yahoo options unavailable, using HV20 as IV estimate:', e.message);
+    console.warn('[IV] Yahoo options chain unavailable, using HV20+risk-premium as IV estimate:', e.message);
     if (state.hv20) {
-      state.iv = state.hv20;
-      state.baseIV = state.hv20;
+      // IV typically 10-20% higher than HV due to risk premium
+      // Use HV20 × 1.15 as a more realistic default than raw HV20
+      state.iv = Math.round(state.hv20 * 1.15 * 10) / 10;
+      state.baseIV = state.iv;
+      console.log(`[IV] Fallback: HV20=${state.hv20.toFixed(1)}% → IV=${state.iv.toFixed(1)}% (HV20×1.15)`);
     }
   }
+
+  // DIAGNOSTIC: log key pricing inputs on every fetch
+  console.log('[Pricing Diagnostics]', {
+    ticker: state.ticker,
+    price: state.currentPrice,
+    iv: state.iv,
+    hv20: state.hv20,
+    baseIV: state.baseIV,
+    chainsCached: Object.keys(state.optionChainsByExpiry || {}),
+    expirySelectValue: document.getElementById('expiry-select')?.value
+  });
 
   showLoading(false);
   showContent(true);
@@ -2338,19 +2394,38 @@ function getIVForExpiry(timestamp, strike) {
   }
 
   // Term-structure model: anchor at baseIV (from nearest Yahoo expiry) or HV20
-  // For longer expiries, IV typically slightly higher than near-term ATM IV
-  // Approx: IV(T) = baseIV * (1 + 0.03 * log(T_days / anchor_days))
+  // Improved model: IV(T) decays from short-term anchor toward long-run HV20
+  // Short-term (≤30d): use anchor directly
+  // Medium-term (30-180d): gradual decay toward HV20
+  // Long-term (>180d): converge to HV20 with slight premium
   const anchor = state.baseIV || state.hv20;
   if (!anchor) return null;
   const days = Math.max(1, Math.round((timestamp * 1000 - Date.now()) / 86400000));
-  const anchorDays = 30;
-  const slope = 0.04;
-  let adjusted = anchor * (1 + slope * Math.log(days / anchorDays));
-  // Cheap synthetic skew: OTM puts +1 vol pt, OTM calls -0.5 vol pt
+  const hv20LongRun = state.hv20 || anchor;
+
+  let adjusted;
+  if (days <= 30) {
+    // Near-term: use anchor as-is
+    adjusted = anchor;
+  } else if (days <= 180) {
+    // Medium-term: decay from anchor toward HV20
+    // weight = 1 at 30d, decays to 0.3 at 180d
+    const t = (days - 30) / 150; // 0→1 over 30-180d
+    const anchorWeight = Math.max(0.3, 1 - t * 0.7);
+    adjusted = anchor * anchorWeight + hv20LongRun * (1 - anchorWeight);
+  } else {
+    // Long-term: converge to HV20 + small term premium (2-3 vol pts)
+    const t = Math.min(1, (days - 180) / 540); // 0→1 over 180-720d
+    adjusted = hv20LongRun * (1 + 0.03 * (1 - t)) + 2 * t;
+  }
+
+  // Synthetic skew adjustment
   if (strike != null && price) {
     const moneyness = strike / price;
-    if (moneyness < 0.95) adjusted += 1.0;
-    else if (moneyness > 1.05) adjusted -= 0.5;
+    if (moneyness < 0.90) adjusted += 2.0;        // Deep OTM put: +2 vol pts
+    else if (moneyness < 0.95) adjusted += 1.0;   // OTM put: +1 vol pt
+    else if (moneyness > 1.10) adjusted += 1.5;   // Deep OTM call: +1.5 vol pts
+    else if (moneyness > 1.05) adjusted += 0.5;   // OTM call: +0.5 vol pt
   }
   return { iv: Math.max(5, adjusted), source: state.baseIV ? 'term-structure (基于近月IV外推)' : 'term-structure (基于HV20估算)' };
 }
@@ -3270,13 +3345,25 @@ function calculatePricing() {
   const rate = parseFloat(document.getElementById('risk-free-rate').value) / 100;
   const expiryTs = parseInt(document.getElementById('expiry-select').value);
 
-  // Get IV — prefer strike-specific IV (set by queryOptionGreeks) so the table shows the
-  // SAME number as the selected-option summary; otherwise fall back to ATM per-expiry IV.
+  // Get IV — priority order:
+  // 1. Manual IV input (if user typed a value in the optional IV override field)
+  // 2. Manual mode override
+  // 3. Strike-specific IV from queryOptionGreeks (already cached)
+  // 4. Per-expiry real ATM IV from Yahoo chain (if cached for this expiry)
+  // 5. Term-structure model extrapolated from anchor
+  // 6. HV20 × 1.15 (fallback when Yahoo unavailable)
   let iv;
-  if (state.manualMode) {
+  const manualIV = parseFloat(document.getElementById('manual-iv')?.value);
+  if (!isNaN(manualIV) && manualIV > 0) {
+    // User manually entered an IV — always respect it (highest priority)
+    iv = manualIV / 100;
+  } else if (state.manualMode) {
     iv = parseFloat(document.getElementById('manual-iv').value) / 100;
   } else if (state.selectedStrikeIV) {
     iv = state.selectedStrikeIV / 100;
+  } else if (expiryTs) {
+    const expiryIV = getIVForExpiry(expiryTs);
+    iv = expiryIV ? expiryIV.iv / 100 : (state.iv || 30) / 100;
   } else {
     iv = (state.iv || 30) / 100;
   }
@@ -3361,12 +3448,31 @@ function calculatePricing() {
   });
 
   document.getElementById('pricing-results').style.display = 'block';
-  const ivLabel = state.selectedStrikeIV ? `${(iv*100).toFixed(1)}% (该 K 实盘 IV)` : `${(iv*100).toFixed(1)}% (ATM 期限结构)`;
+
+  // Build detailed IV source label
+  let ivSourceLabel = '';
+  const sigmaPct = (iv * 100).toFixed(1);
+  const manualIVVal = parseFloat(document.getElementById('manual-iv')?.value);
+  if (!isNaN(manualIVVal) && manualIVVal > 0) {
+    ivSourceLabel = `${sigmaPct}% (⚡ 手动输入 — 来自券商/道琼斯)`;
+  } else if (state.selectedStrikeIV) {
+    ivSourceLabel = `${sigmaPct}% (该行权价实盘 IV，来自 Yahoo 期权链)`;
+  } else if (expiryTs && state.optionChainsByExpiry?.[expiryTs]) {
+    ivSourceLabel = `${sigmaPct}% (该到期日 ATM 实盘 IV，来自 Yahoo 期权链)`;
+  } else if (expiryTs && state.baseIV) {
+    const days = Math.max(1, Math.round((expiryTs - Date.now() / 1000) / 86400));
+    ivSourceLabel = `${sigmaPct}% (期限结构推算，anchor=${(state.baseIV).toFixed(1)}% 近月 IV，距今 ${days} 天)`;
+  } else if (state.hv20 && !state.baseIV) {
+    ivSourceLabel = `${sigmaPct}% (HV20×1.15 估算，Yahoo 期权链不可用，HV20=${state.hv20.toFixed(1)}%)`;
+  } else {
+    ivSourceLabel = `${sigmaPct}% (默认估计值)`;
+  }
+
   const modelTxt = state.model === 'bs'
-    ? `模型: Black-Scholes (欧式) · T=${T.toFixed(4)}年 · σ=${ivLabel}`
-    : `模型: Cox-Ross-Rubinstein 二叉树 (美式, 100步) · T=${T.toFixed(4)}年 · σ=${ivLabel}`;
+    ? `模型: Black-Scholes (欧式) · T=${T.toFixed(4)}年 · σ=${ivSourceLabel}`
+    : `模型: Cox-Ross-Rubinstein 二叉树 (美式, 100步) · T=${T.toFixed(4)}年 · σ=${ivSourceLabel}`;
   document.getElementById('model-note').textContent =
-    modelTxt + ' · 注：模型未含股息率与波动率微笑，与券商挂牌价可能存在 1-3% 偏差';
+    modelTxt + ' · 注：模型未含股息率与波动率微笑，与券商挂牌价可能存在偏差';
   document.getElementById('save-btn').disabled = false;
 
   // Auto-render straddle matrix
@@ -3385,7 +3491,7 @@ function renderStraddleMatrix() {
     : state.currentPrice;
   let iv = state.manualMode
     ? parseFloat(document.getElementById('manual-iv').value) / 100
-    : (state.iv || 30) / 100;
+    : (state.selectedStrikeIV || getIVForExpiry(expiryTs)?.iv || state.iv || 30) / 100;
 
   if (!spot || !minPrice || !maxPrice || !expiryTs) {
     document.getElementById('straddle-matrix').style.display = 'none';
