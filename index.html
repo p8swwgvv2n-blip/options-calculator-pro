@@ -1613,8 +1613,8 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
           <summary class="manual-iv-toggle__label">批量导入 IV 数据（JSON）</summary>
           <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">
             <div class="iv-source-tag">
-              通过本地脚本导出 Yahoo 期权链 IV 数据，一次性导入全部到期日+行权价的 IV。
-              使用方法：<code>python3 export-iv-data.py AAPL NVDA TSLA</code>
+              从能访问 Yahoo 的电脑导出 IV 数据，传到本机后导入即可。
+              导出步骤：下载 <a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E5%AF%BC%E5%87%BA%E6%9C%9F%E6%9D%83IV.py" target="_blank">导出期权IV.py</a> → 双击运行 → 输入股票代码（如 AMD AAPL NVDA）→ 自动生成 JSON 文件。
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <input type="file" id="iv-import-file" accept=".json" style="flex:1;font-size:13px;" />
@@ -1733,7 +1733,7 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
 <!-- FOOTER -->
 <footer class="app-footer" data-component="footer" data-od-id="footer">
   免责声明：本页面所有期权理论价格、波动率分析和策略推荐均基于数学模型，仅供教育和学习参考，不构成任何投资建议。<br/>
-  数据来源：Twelve Data（800/天）→ Alpha Vantage（25/天）→ Finnhub（60/分钟）三级 fallback · 批量导入 IV：python3 export-iv-data.py AAPL NVDA · 定价模型：Black-Scholes / Cox-Ross-Rubinstein 二叉树
+  数据来源：Twelve Data / Alpha Vantage / Finnhub · 批量导入 IV：双击「导出期权IV.py」→ 输入股票代码 → 生成 JSON → 网页导入
 </footer>
 
 <!-- TOAST -->
