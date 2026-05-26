@@ -1614,7 +1614,8 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
           <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">
             <div class="iv-source-tag">
               从能访问 Yahoo 的电脑导出 IV 数据（预设 AMD/AMZN/GOOGL/UNH/TSLA/AAPL/NVDA/MSFT/META），传到本机后导入即可。
-              导出步骤：<a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E4%B8%80%E9%94%AE%E5%AF%BC%E5%87%BA%E6%9C%9F%E6%9D%83IV.py" target="_blank">下载一键导出脚本</a> → 双击运行 → 自动生成 JSON。
+              方式① 网页版（推荐）：<a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E4%B8%80%E9%94%AE%E5%AF%BC%E5%87%BAIV.html" target="_blank">下载一键导出IV.html</a> → 双击用浏览器打开 → 点击「开始导出」→ 自动下载 JSON。
+              方式② Python版：<a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E4%B8%80%E9%94%AE%E5%AF%BC%E5%87%BA%E6%9C%9F%E6%9D%83IV.py" target="_blank">下载一键导出脚本</a> → 双击运行 → 自动生成 JSON。
               定时导出（可选）：<a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E5%AE%9A%E6%97%B6%E5%AF%BC%E5%87%BA%E6%9C%9F%E6%9D%83IV.py" target="_blank">定时脚本</a> + <a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/setup-cron-mac.sh" target="_blank">Mac 安装</a> / <a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/setup-cron-win.bat" target="_blank">Win 安装</a>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
@@ -1867,14 +1868,30 @@ async function fetchData() {
   populateDefaultExpiries();
 
   // Yahoo options chain (best-effort for IV)
-  try {
-    const optionsData = await fetchYahooOptions(ticker);
-    processOptionsData(optionsData);
-  } catch (e) {
-    console.warn('[IV] Yahoo options chain unavailable:', e.message);
-    if (state.hv20) {
-      state.iv = Math.round(state.hv20 * 1.15 * 10) / 10;
-      state.baseIV = state.iv;
+  // Skip if we already have imported IV data for this ticker — don't overwrite with potentially incomplete cloud data
+  const hasImportedIV = state.importedIVData?.tickers?.[ticker];
+  if (!hasImportedIV) {
+    try {
+      const optionsData = await fetchYahooOptions(ticker);
+      // Merge imported chains only if they exist — don't let Yahoo overwrite them
+      const importedChains = state.importedIVData?.tickers?.[ticker] ? {} : null;
+      processOptionsData(optionsData);
+      // Restore imported chains if they were overwritten
+      if (importedChains) {
+        // No-op: imported data is already in state.optionChainsByExpiry from populateFromImportedData
+      }
+    } catch (e) {
+      console.warn('[IV] Yahoo options chain unavailable:', e.message);
+      if (state.hv20) {
+        state.iv = Math.round(state.hv20 * 1.15 * 10) / 10;
+        state.baseIV = state.iv;
+      }
+    }
+  } else {
+    console.log(`[IV] Skipping Yahoo fetch — using imported data for ${ticker}`);
+    // Make sure expiry list is populated from imported data
+    if (!state.expiryDates.length) {
+      populateFromImportedData(ticker);
     }
   }
 

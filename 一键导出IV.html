@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>期权 IV 数据导出工具</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .container { max-width: 640px; width: 100%; padding: 24px; }
+  .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 32px; }
+  h1 { font-size: 22px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+  .subtitle { font-size: 13px; color: #888; margin-bottom: 24px; }
+  .ticker-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+  .ticker-chip { background: #2a2a2a; border: 1px solid #444; border-radius: 16px; padding: 6px 14px; font-size: 13px; color: #ccc; }
+  .ticker-chip.fetched { background: #0f3d0f; border-color: #2d8a2d; color: #4caf50; }
+  .ticker-chip.failed { background: #3d0f0f; border-color: #8a2d2d; color: #f44; }
+  .btn-export { width: 100%; padding: 14px; background: #0f62fe; color: #fff; border: none; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+  .btn-export:hover { background: #0043ce; }
+  .btn-export:disabled { background: #333; color: #666; cursor: not-allowed; }
+  .status { margin-top: 16px; padding: 12px; border-radius: 6px; font-size: 13px; display: none; }
+  .status.info { background: #0a1628; border: 1px solid #1a3a5c; color: #6cb4ee; display: block; }
+  .status.success { background: #0a280a; border: 1px solid #1a5c2a; color: #4caf50; display: block; }
+  .status.error { background: #280a0a; border: 1px solid #5c1a1a; color: #f44; display: block; }
+  .progress-bar { height: 4px; background: #333; border-radius: 2px; margin-top: 12px; overflow: hidden; display: none; }
+  .progress-bar.active { display: block; }
+  .progress-bar__fill { height: 100%; background: #0f62fe; border-radius: 2px; transition: width 0.3s; width: 0%; }
+  .stats { margin-top: 16px; display: none; }
+  .stats.show { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat { background: #222; border-radius: 6px; padding: 12px; text-align: center; }
+  .stat__num { font-size: 24px; font-weight: 700; color: #0f62fe; }
+  .stat__label { font-size: 11px; color: #888; margin-top: 4px; }
+  .footer { margin-top: 20px; font-size: 12px; color: #666; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <h1>期权 IV 数据导出</h1>
+    <p class="subtitle">点击按钮，一键抓取 Yahoo Finance 期权链 IV 数据</p>
+
+    <div class="ticker-list" id="ticker-list"></div>
+
+    <button class="btn-export" id="btn-export" onclick="startExport()">开始导出</button>
+
+    <div class="progress-bar" id="progress-bar"><div class="progress-bar__fill" id="progress-fill"></div></div>
+
+    <div class="status" id="status"></div>
+
+    <div class="stats" id="stats">
+      <div class="stat"><div class="stat__num" id="stat-tickers">0</div><div class="stat__label">成功股票</div></div>
+      <div class="stat"><div class="stat__num" id="stat-expiries">0</div><div class="stat__label">到期日</div></div>
+      <div class="stat"><div class="stat__num" id="stat-iv">0</div><div class="stat__label">IV 条目</div></div>
+    </div>
+  </div>
+  <p class="footer">数据保存在本文件同级目录 · 生成 JSON 后传到另一台电脑导入网页</p>
+</div>
+
+<script>
+const TICKERS = ["AMD", "AMZN", "GOOGL", "UNH", "TSLA", "AAPL", "NVDA", "MSFT", "META"];
+let exportedData = null;
+
+// Render ticker chips
+function renderTickers() {
+  const list = document.getElementById('ticker-list');
+  list.innerHTML = TICKERS.map(t => `<span class="ticker-chip" id="chip-${t}">${t}</span>`).join('');
+}
+
+function setChipStatus(ticker, status) {
+  const chip = document.getElementById(`chip-${ticker}`);
+  if (chip) {
+    chip.classList.remove('fetched', 'failed');
+    if (status === 'ok') chip.classList.add('fetched');
+    else if (status === 'fail') chip.classList.add('failed');
+  }
+}
+
+function setStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + type;
+}
+
+function setProgress(pct) {
+  const bar = document.getElementById('progress-bar');
+  const fill = document.getElementById('progress-fill');
+  bar.classList.add('active');
+  fill.style.width = pct + '%';
+}
+
+async function fetchYahooIV(ticker) {
+  const url = `https://query2.finance.yahoo.com/v7/finance/options/${ticker}`;
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+      }
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const result = data.optionChain?.result?.[0];
+    if (!result) return null;
+
+    const meta = result.quote || {};
+    const tickerData = {
+      symbol: ticker,
+      price: meta.regularMarketPrice,
+      timestamp: new Date().toLocaleString('zh-CN'),
+      expiries: [],
+    };
+
+    for (const opt of (result.options || [])) {
+      const expDate = opt.expirationDate;
+      const expStr = expDate ? new Date(expDate * 1000).toISOString().slice(0, 10) : '?';
+      const entry = { date: expStr, timestamp: expDate, calls: [], puts: [] };
+
+      for (const c of (opt.calls || [])) {
+        if (c.impliedVolatility != null) {
+          entry.calls.push({
+            strike: c.strike, iv: Math.round(c.impliedVolatility * 10000) / 100,
+            lastPrice: c.lastPrice, bid: c.bid, ask: c.ask,
+            volume: c.volume, openInterest: c.openInterest,
+          });
+        }
+      }
+      for (const p of (opt.puts || [])) {
+        if (p.impliedVolatility != null) {
+          entry.puts.push({
+            strike: p.strike, iv: Math.round(p.impliedVolatility * 10000) / 100,
+            lastPrice: p.lastPrice, bid: p.bid, ask: p.ask,
+            volume: p.volume, openInterest: p.openInterest,
+          });
+        }
+      }
+      if (entry.calls.length || entry.puts.length) tickerData.expiries.push(entry);
+    }
+    return tickerData;
+  } catch (e) {
+    console.warn(`${ticker} fetch failed:`, e.message);
+    return null;
+  }
+}
+
+async function startExport() {
+  const btn = document.getElementById('btn-export');
+  btn.disabled = true;
+  btn.textContent = '导出中...';
+  document.getElementById('stats').classList.remove('show');
+
+  const output = { version: 1, generatedAt: new Date().toLocaleString('zh-CN'), tickers: {} };
+  let successCount = 0;
+
+  for (let i = 0; i < TICKERS.length; i++) {
+    const t = TICKERS[i];
+    setChipStatus(t, '');
+    setStatus(`正在抓取 ${t} (${i + 1}/${TICKERS.length})...`, 'info');
+    setProgress(((i + 1) / TICKERS.length) * 100);
+
+    // Rate limit: 1s between requests
+    if (i > 0) await new Promise(r => setTimeout(r, 1000));
+
+    const data = await fetchYahooIV(t);
+    if (data && data.expiries.length > 0) {
+      output.tickers[t] = data;
+      setChipStatus(t, 'ok');
+      successCount++;
+    } else {
+      setChipStatus(t, 'fail');
+    }
+  }
+
+  if (successCount === 0) {
+    setStatus('全部抓取失败，请检查网络连接后重试。', 'error');
+    btn.disabled = false;
+    btn.textContent = '开始导出';
+    return;
+  }
+
+  // Save file
+  const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  a.href = url;
+  a.download = `iv-data-${dateStr}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  // Show stats
+  const totalExpiries = Object.values(output.tickers).reduce((s, t) => s + t.expiries.length, 0);
+  const totalIV = Object.values(output.tickers).reduce((s, t) =>
+    s + t.expiries.reduce((ss, e) => ss + e.calls.length + e.puts.length, 0), 0);
+
+  document.getElementById('stat-tickers').textContent = successCount;
+  document.getElementById('stat-expiries').textContent = totalExpiries;
+  document.getElementById('stat-iv').textContent = totalIV;
+  document.getElementById('stats').classList.add('show');
+
+  setStatus(`导出完成！已下载 iv-data-${dateStr}.json — 将文件传到另一台电脑，在网页中点击「批量导入 IV 数据」导入。`, 'success');
+  btn.disabled = false;
+  btn.textContent = '再次导出';
+}
+
+renderTickers();
+</script>
+</body>
+</html>
