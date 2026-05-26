@@ -1199,7 +1199,7 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
     <h1>Options Lab</h1>
   </div>
   <div class="app-header__actions">
-    <span class="data-source-tag">Data: 本地代理 / Twelve Data / Alpha Vantage / Finnhub</span>
+    <span class="data-source-tag">Data: Twelve Data / Alpha Vantage / Finnhub</span>
     <button class="theme-toggle" onclick="toggleTheme()" aria-label="切换主题">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
     </button>
@@ -1607,6 +1607,26 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
             <div class="iv-source-tag" style="margin-top:4px;">填入券商/道琼斯上的真实 IV 可显著提高定价精度</div>
           </div>
         </details>
+
+        <!-- Batch IV Import -->
+        <details class="manual-iv-toggle" id="batch-import-section">
+          <summary class="manual-iv-toggle__label">批量导入 IV 数据（JSON）</summary>
+          <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">
+            <div class="iv-source-tag">
+              通过本地脚本导出 Yahoo 期权链 IV 数据，一次性导入全部到期日+行权价的 IV。
+              使用方法：<code>python3 export-iv-data.py AAPL NVDA TSLA</code>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="file" id="iv-import-file" accept=".json" style="flex:1;font-size:13px;" />
+              <button class="btn btn--ghost btn--small" onclick="importIVFile()" style="white-space:nowrap;">导入文件</button>
+            </div>
+            <div style="position:relative;">
+              <textarea id="iv-import-paste" rows="4" placeholder='或粘贴 JSON 内容，格式：{"tickers":{"AMD":{"price":467.51,"expiries":[...]}}}' style="width:100%;font-family:var(--font-mono);font-size:12px;padding:8px;border:1px solid var(--color-border);border-radius:var(--radius-control);background:var(--color-bg-surface);color:var(--color-text-primary);resize:vertical;"></textarea>
+              <button class="btn btn--ghost btn--small" onclick="importIVPaste()" style="position:absolute;bottom:6px;right:6px;font-size:12px;">导入粘贴</button>
+            </div>
+            <div id="iv-import-status" class="iv-source-tag" style="display:none;"></div>
+          </div>
+        </details>
         <div class="iv-source-tag" id="pricing-strike-echo">行权价请在左侧"到期日 · 行权价"区域选择或输入。</div>
         <button class="btn btn--primary" onclick="calculatePricing()" id="calc-btn" style="width:100%;margin-top:4px;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 4h16v16H4z"/><path d="M8 8h2M14 8h2M8 12h8M8 16h2M14 16h2"/></svg>
@@ -1713,7 +1733,7 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
 <!-- FOOTER -->
 <footer class="app-footer" data-component="footer" data-od-id="footer">
   免责声明：本页面所有期权理论价格、波动率分析和策略推荐均基于数学模型，仅供教育和学习参考，不构成任何投资建议。<br/>
-  数据来源：本地代理（首选，Yahoo Finance）→ Twelve Data（800/天）→ Alpha Vantage（25/天）→ Finnhub（60/分钟）四级 fallback · 定价模型：Black-Scholes / Cox-Ross-Rubinstein 二叉树 · 本地代理部署：python3 options-proxy-server.py
+  数据来源：Twelve Data（800/天）→ Alpha Vantage（25/天）→ Finnhub（60/分钟）三级 fallback · 批量导入 IV：python3 export-iv-data.py AAPL NVDA · 定价模型：Black-Scholes / Cox-Ross-Rubinstein 二叉树
 </footer>
 
 <!-- TOAST -->
@@ -1810,103 +1830,51 @@ async function fetchData() {
   hideError();
   showLoading(true);
 
-  // ---- Step 1: Try local proxy first (full data: quote + history + options) ----
-  const LOCAL_PROXY = 'http://127.0.0.1:8765';
-  let localOk = false;
-  try {
-    const resp = await fetch(`${LOCAL_PROXY}/?action=full&ticker=${ticker}`, { signal: AbortSignal.timeout(5000) });
-    if (resp.ok) {
-      const proxyData = await resp.json();
-      if (proxyData.quote && !proxyData.quote.error && proxyData.quote.price) {
-        console.log('[Data] Local proxy OK — using full data from Yahoo Finance');
-        localOk = true;
+  const sources = [
+    { name: 'Twelve Data', fn: () => fetchFromTwelveData(ticker) },
+    { name: 'Alpha Vantage', fn: () => fetchFromAlphaVantage(ticker) },
+    { name: 'Finnhub (quote only)', fn: () => fetchFromFinnhub(ticker) },
+  ];
 
-        // Populate state from proxy quote
-        const q = proxyData.quote;
-        state.currentPrice = q.price;
-        state.previousClose = q.previousClose || q.price;
-        state.change = q.change || 0;
-        state.changePct = q.changePercent || 0;
-        state.fiftyTwoWeekHigh = q.fiftyTwoWeekHigh;
-        state.fiftyTwoWeekLow = q.fiftyTwoWeekLow;
-
-        // Populate history from proxy
-        if (proxyData.history && proxyData.history.history) {
-          state.historicalPrices = proxyData.history.history
-            .filter(h => h.close != null)
-            .map(h => h.close);
-        }
-
-        // Always populate 3-year baseline expiry list first (synthetic Friday-aligned)
-        state.expiryDates = [];
-        populateDefaultExpiries();
-
-        // Populate options data from proxy
-        if (proxyData.options && proxyData.options.chains) {
-          const optResult = {
-            expirationDates: proxyData.options.expirationDates || [],
-            options: Object.entries(proxyData.options.chains).map(([expDate, chain]) => ({
-              expirationDate: parseInt(expDate),
-              calls: chain.calls || [],
-              puts: chain.puts || [],
-            })),
-          };
-          processOptionsData(optResult);
-        }
-      }
+  let lastError = null;
+  let usedSource = null;
+  for (const src of sources) {
+    try {
+      console.log(`[Data] Trying ${src.name}…`);
+      await src.fn();
+      usedSource = src.name;
+      console.log(`[Data] ${src.name} OK`);
+      break;
+    } catch (e) {
+      console.warn(`[Data] ${src.name} failed:`, e.message);
+      lastError = e;
     }
-  } catch (e) {
-    console.log('[Data] Local proxy unavailable:', e.message);
   }
 
-  // ---- Step 2: Fall back to cloud APIs if local proxy not available ----
-  if (!localOk) {
-    const sources = [
-      { name: 'Twelve Data', fn: () => fetchFromTwelveData(ticker) },
-      { name: 'Alpha Vantage', fn: () => fetchFromAlphaVantage(ticker) },
-      { name: 'Finnhub (quote only)', fn: () => fetchFromFinnhub(ticker) },
-    ];
+  if (!usedSource) {
+    showLoading(false);
+    showError(`全部数据源失败：${lastError?.message || '未知错误'}。可点击下方切换手动输入，或使用批量导入 IV 数据。`);
+    return;
+  }
 
-    let lastError = null;
-    let usedSource = null;
-    for (const src of sources) {
-      try {
-        console.log(`[Data] Trying ${src.name}…`);
-        await src.fn();
-        usedSource = src.name;
-        console.log(`[Data] ${src.name} OK`);
-        break;
-      } catch (e) {
-        console.warn(`[Data] ${src.name} failed:`, e.message);
-        lastError = e;
-      }
+  // Update data-source tag
+  const tagEl = document.querySelector('.data-source-tag');
+  if (tagEl) tagEl.textContent = `Data: ${usedSource}`;
+
+  // Always populate 3-year baseline expiry list first (synthetic Friday-aligned)
+  state.expiryDates = [];
+  populateDefaultExpiries();
+
+  // Yahoo options chain (best-effort for IV)
+  try {
+    const optionsData = await fetchYahooOptions(ticker);
+    processOptionsData(optionsData);
+  } catch (e) {
+    console.warn('[IV] Yahoo options chain unavailable:', e.message);
+    if (state.hv20) {
+      state.iv = Math.round(state.hv20 * 1.15 * 10) / 10;
+      state.baseIV = state.iv;
     }
-
-    if (!usedSource) {
-      showLoading(false);
-      showError(`全部数据源失败：${lastError?.message || '未知错误'}。请启动本地代理（python3 options-proxy-server.py）或切换手动输入。`);
-      return;
-    }
-
-    // Update data-source tag
-    const tagEl = document.querySelector('.data-source-tag');
-    if (tagEl) tagEl.textContent = `Data: ${usedSource}`;
-
-    // Yahoo options chain (best-effort for IV)
-    try {
-      const optionsData = await fetchYahooOptions(ticker);
-      processOptionsData(optionsData);
-    } catch (e) {
-      console.warn('[IV] Yahoo options chain unavailable:', e.message);
-      if (state.hv20) {
-        state.iv = Math.round(state.hv20 * 1.15 * 10) / 10;
-        state.baseIV = state.iv;
-      }
-    }
-  } else {
-    // Local proxy was used — update data-source tag
-    const tagEl = document.querySelector('.data-source-tag');
-    if (tagEl) tagEl.textContent = 'Data: 本地代理 (Yahoo)';
   }
 
   // DIAGNOSTIC: log key pricing inputs on every fetch
@@ -2322,21 +2290,6 @@ async function fetchYahooOptions(ticker) {
 }
 
 async function fetchYahooOptionsForExpiry(ticker, expiryTs) {
-  // Try local proxy first
-  try {
-    const resp = await fetch(`http://127.0.0.1:8765/?action=options-expiry&ticker=${ticker}&expiry_ts=${expiryTs}`, { signal: AbortSignal.timeout(5000) });
-    if (resp.ok) {
-      const data = await resp.json();
-      if (data.calls || data.puts) {
-        state.optionChainsByExpiry = state.optionChainsByExpiry || {};
-        state.optionChainsByExpiry[expiryTs] = { calls: data.calls || [], puts: data.puts || [] };
-        return state.optionChainsByExpiry[expiryTs];
-      }
-    }
-  } catch (e) {
-    console.log('[IV] Local proxy not available for per-expiry fetch');
-  }
-  // Fall back to cloud proxy
   const url = `https://query2.finance.yahoo.com/v7/finance/options/${ticker}?date=${expiryTs}`;
   const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
   const res = await fetchWithTimeout(proxy, 15000);
@@ -3405,6 +3358,162 @@ function generateStrategies(iv, hv, change5d, ma5, ma20) {
       </div>
     </div>
   `).join('');
+}
+
+/* ========== BATCH IV IMPORT ========== */
+
+/** Global store for imported IV data */
+state.importedIVData = null;
+
+function importIVFile() {
+  const fileInput = document.getElementById('iv-import-file');
+  const file = fileInput.files[0];
+  if (!file) {
+    showImportStatus('请先选择一个 JSON 文件', 'warn');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      processImportedIVData(data);
+    } catch (err) {
+      showImportStatus('JSON 解析失败：' + err.message, 'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function importIVPaste() {
+  const text = document.getElementById('iv-import-paste').value.trim();
+  if (!text) {
+    showImportStatus('请先粘贴 JSON 内容', 'warn');
+    return;
+  }
+  try {
+    const data = JSON.parse(text);
+    processImportedIVData(data);
+  } catch (err) {
+    showImportStatus('JSON 解析失败：' + err.message, 'error');
+  }
+}
+
+function processImportedIVData(data) {
+  if (!data.tickers || typeof data.tickers !== 'object') {
+    showImportStatus('无效的 IV 数据格式：缺少 tickers 字段', 'error');
+    return;
+  }
+
+  state.importedIVData = data;
+  const tickerCount = Object.keys(data.tickers).length;
+  let totalExpiries = 0;
+  let totalIVEntries = 0;
+  for (const sym of Object.keys(data.tickers)) {
+    const t = data.tickers[sym];
+    totalExpiries += (t.expiries || []).length;
+    for (const e of (t.expiries || [])) {
+      totalIVEntries += (e.calls || []).length + (e.puts || []).length;
+    }
+  }
+
+  showImportStatus(
+    `已导入 ${tickerCount} 只股票，${totalExpiries} 个到期日，${totalIVEntries} 条 IV 数据。` +
+    ` 股票代码: ${Object.keys(data.tickers).join(', ')}`,
+    'success'
+  );
+
+  // If current ticker is in imported data, auto-populate its expiries
+  if (state.ticker && data.tickers[state.ticker.toUpperCase()]) {
+    populateFromImportedData(state.ticker.toUpperCase());
+  }
+}
+
+function populateFromImportedData(ticker) {
+  const imported = state.importedIVData;
+  if (!imported || !imported.tickers[ticker]) return;
+
+  const tickerData = imported.tickers[ticker];
+  if (!tickerData.price) return;
+
+  // Set current price if not already set from cloud API
+  if (!state.currentPrice || state.currentPrice !== tickerData.price) {
+    state.currentPrice = tickerData.price;
+    updateQuote();
+  }
+
+  // Populate expiry dates from imported data
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiryList = (tickerData.expiries || []).map(e => {
+    const ts = e.timestamp;
+    const d = new Date(ts * 1000);
+    const days = Math.round((d - today) / 86400000);
+    let label;
+    if (days < 90) label = `${d.toLocaleDateString('zh-CN')} (${days}天 · 导入)`;
+    else if (days < 730) label = `${d.toLocaleDateString('zh-CN')} (${Math.round(days/30)}个月 · 导入)`;
+    else label = `${d.toLocaleDateString('zh-CN')} (${(days/365).toFixed(1)}年 · 导入)`;
+    return { timestamp: ts, label, days, real: true };
+  }).sort((a, b) => a.timestamp - b.timestamp);
+
+  if (expiryList.length === 0) return;
+
+  // Merge with existing synthetic expiry list
+  state.expiryDates = [...expiryList, ...(state.expiryDates || []).filter(e => !expiryList.some(i => i.timestamp === e.timestamp))];
+
+  // Populate expiry select
+  const select = document.getElementById('expiry-select');
+  select.innerHTML = state.expiryDates.map(d =>
+    `<option value="${d.timestamp}">${d.label}</option>`
+  ).join('');
+
+  // Select first expiry by default
+  if (expiryList.length > 0) {
+    select.value = String(expiryList[0].timestamp);
+  }
+
+  // Cache chains for IV lookup
+  state.optionChainsByExpiry = state.optionChainsByExpiry || {};
+  for (const e of (tickerData.expiries || [])) {
+    state.optionChainsByExpiry[e.timestamp] = {
+      calls: (e.calls || []).map(c => ({...c, impliedVolatility: c.iv / 100})),
+      puts: (e.puts || []).map(p => ({...p, impliedVolatility: p.iv / 100})),
+    };
+  }
+
+  // Set base IV from ATM of first expiry
+  const firstExpiry = tickerData.expiries[0];
+  if (firstExpiry && tickerData.price) {
+    const price = tickerData.price;
+    const allOptions = [...(firstExpiry.calls || []), ...(firstExpiry.puts || [])];
+    const atmOption = allOptions.reduce((best, o) =>
+      Math.abs(o.strike - price) < Math.abs(best.strike - price) ? o : best
+    , allOptions[0]);
+    if (atmOption && atmOption.iv) {
+      state.iv = atmOption.iv;
+      state.baseIV = atmOption.iv;
+    }
+  }
+
+  // Refresh UI
+  updateVolatilityPanel();
+  if (typeof buildStrikeChips === 'function') buildStrikeChips();
+
+  // Trigger IV info display
+  setTimeout(() => { if (typeof onExpiryChange === 'function') onExpiryChange(); }, 0);
+
+  showImportStatus(`已为 ${ticker} 加载 ${expiryList.length} 个到期日的数据，切换到"期权"模式即可查看。`, 'success');
+}
+
+function showImportStatus(msg, type) {
+  const el = document.getElementById('iv-import-status');
+  if (!el) return;
+  el.style.display = 'block';
+  el.textContent = msg;
+  el.style.color = type === 'error' ? 'var(--color-state-danger)' :
+                   type === 'warn' ? 'var(--color-state-warning)' :
+                   'var(--color-state-success)';
+  // Auto-hide after 8s
+  setTimeout(() => { el.style.display = 'none'; }, 8000);
 }
 
 /* ========== PRICING CALCULATION ========== */
