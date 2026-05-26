@@ -1199,7 +1199,7 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
     <h1>Options Lab</h1>
   </div>
   <div class="app-header__actions">
-    <span class="data-source-tag">Data: Twelve Data → Alpha Vantage → Finnhub</span>
+    <span class="data-source-tag">Data: 本地代理 / Twelve Data / Alpha Vantage / Finnhub</span>
     <button class="theme-toggle" onclick="toggleTheme()" aria-label="切换主题">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
     </button>
@@ -1713,7 +1713,7 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
 <!-- FOOTER -->
 <footer class="app-footer" data-component="footer" data-od-id="footer">
   免责声明：本页面所有期权理论价格、波动率分析和策略推荐均基于数学模型，仅供教育和学习参考，不构成任何投资建议。<br/>
-  数据来源：Twelve Data（800/天）→ Alpha Vantage（25/天）→ Finnhub（60/分钟）三级 fallback · 期权 IV via Yahoo Finance + allorigins 代理 · 定价模型：Black-Scholes / Cox-Ross-Rubinstein 二叉树
+  数据来源：本地代理（首选，Yahoo Finance）→ Twelve Data（800/天）→ Alpha Vantage（25/天）→ Finnhub（60/分钟）四级 fallback · 定价模型：Black-Scholes / Cox-Ross-Rubinstein 二叉树 · 本地代理部署：python3 options-proxy-server.py
 </footer>
 
 <!-- TOAST -->
@@ -1810,55 +1810,99 @@ async function fetchData() {
   hideError();
   showLoading(true);
 
-  const sources = [
-    { name: 'Twelve Data', fn: () => fetchFromTwelveData(ticker) },
-    { name: 'Alpha Vantage', fn: () => fetchFromAlphaVantage(ticker) },
-    { name: 'Finnhub (quote only)', fn: () => fetchFromFinnhub(ticker) },
-  ];
-
-  let lastError = null;
-  let usedSource = null;
-  for (const src of sources) {
-    try {
-      console.log(`[Data] Trying ${src.name}…`);
-      await src.fn();
-      usedSource = src.name;
-      console.log(`[Data] ${src.name} OK`);
-      break;
-    } catch (e) {
-      console.warn(`[Data] ${src.name} failed:`, e.message);
-      lastError = e;
-    }
-  }
-
-  if (!usedSource) {
-    showLoading(false);
-    showError(`全部数据源失败：${lastError?.message || '未知错误'}。可点击下方切换手动输入继续使用。`);
-    return;
-  }
-
-  // Update data-source tag to show which API was used
-  const tagEl = document.querySelector('.data-source-tag');
-  if (tagEl) tagEl.textContent = `Data: ${usedSource}`;
-
-  // Always populate 3-year baseline expiry list first (synthetic Friday-aligned)
-  state.expiryDates = [];
-  populateDefaultExpiries();
-
-  // Try fetch IV from Yahoo (best-effort, may fail without breaking UI)
-  // processOptionsData will merge Yahoo real expiries on top of synthetic
+  // ---- Step 1: Try local proxy first (full data: quote + history + options) ----
+  const LOCAL_PROXY = 'http://127.0.0.1:8765';
+  let localOk = false;
   try {
-    const optionsData = await fetchYahooOptions(ticker);
-    processOptionsData(optionsData);
-  } catch (e) {
-    console.warn('[IV] Yahoo options chain unavailable, using HV20+risk-premium as IV estimate:', e.message);
-    if (state.hv20) {
-      // IV typically 10-20% higher than HV due to risk premium
-      // Use HV20 × 1.15 as a more realistic default than raw HV20
-      state.iv = Math.round(state.hv20 * 1.15 * 10) / 10;
-      state.baseIV = state.iv;
-      console.log(`[IV] Fallback: HV20=${state.hv20.toFixed(1)}% → IV=${state.iv.toFixed(1)}% (HV20×1.15)`);
+    const resp = await fetch(`${LOCAL_PROXY}/?action=full&ticker=${ticker}`, { signal: AbortSignal.timeout(5000) });
+    if (resp.ok) {
+      const proxyData = await resp.json();
+      if (proxyData.quote && !proxyData.quote.error && proxyData.quote.price) {
+        console.log('[Data] Local proxy OK — using full data from Yahoo Finance');
+        localOk = true;
+
+        // Populate state from proxy quote
+        const q = proxyData.quote;
+        state.currentPrice = q.price;
+        state.previousClose = q.previousClose || q.price;
+        state.change = q.change || 0;
+        state.changePct = q.changePercent || 0;
+        state.fiftyTwoWeekHigh = q.fiftyTwoWeekHigh;
+        state.fiftyTwoWeekLow = q.fiftyTwoWeekLow;
+
+        // Populate history from proxy
+        if (proxyData.history && proxyData.history.history) {
+          state.historicalPrices = proxyData.history.history
+            .filter(h => h.close != null)
+            .map(h => h.close);
+        }
+
+        // Populate options data from proxy
+        if (proxyData.options && proxyData.options.chains) {
+          const optResult = {
+            expirationDates: proxyData.options.expirationDates || [],
+            options: Object.entries(proxyData.options.chains).map(([expDate, chain]) => ({
+              expirationDate: parseInt(expDate),
+              calls: chain.calls || [],
+              puts: chain.puts || [],
+            })),
+          };
+          processOptionsData(optResult);
+        }
+      }
     }
+  } catch (e) {
+    console.log('[Data] Local proxy unavailable:', e.message);
+  }
+
+  // ---- Step 2: Fall back to cloud APIs if local proxy not available ----
+  if (!localOk) {
+    const sources = [
+      { name: 'Twelve Data', fn: () => fetchFromTwelveData(ticker) },
+      { name: 'Alpha Vantage', fn: () => fetchFromAlphaVantage(ticker) },
+      { name: 'Finnhub (quote only)', fn: () => fetchFromFinnhub(ticker) },
+    ];
+
+    let lastError = null;
+    let usedSource = null;
+    for (const src of sources) {
+      try {
+        console.log(`[Data] Trying ${src.name}…`);
+        await src.fn();
+        usedSource = src.name;
+        console.log(`[Data] ${src.name} OK`);
+        break;
+      } catch (e) {
+        console.warn(`[Data] ${src.name} failed:`, e.message);
+        lastError = e;
+      }
+    }
+
+    if (!usedSource) {
+      showLoading(false);
+      showError(`全部数据源失败：${lastError?.message || '未知错误'}。请启动本地代理（python3 options-proxy-server.py）或切换手动输入。`);
+      return;
+    }
+
+    // Update data-source tag
+    const tagEl = document.querySelector('.data-source-tag');
+    if (tagEl) tagEl.textContent = `Data: ${usedSource}`;
+
+    // Yahoo options chain (best-effort for IV)
+    try {
+      const optionsData = await fetchYahooOptions(ticker);
+      processOptionsData(optionsData);
+    } catch (e) {
+      console.warn('[IV] Yahoo options chain unavailable:', e.message);
+      if (state.hv20) {
+        state.iv = Math.round(state.hv20 * 1.15 * 10) / 10;
+        state.baseIV = state.iv;
+      }
+    }
+  } else {
+    // Local proxy was used — update data-source tag
+    const tagEl = document.querySelector('.data-source-tag');
+    if (tagEl) tagEl.textContent = 'Data: 本地代理 (Yahoo)';
   }
 
   // DIAGNOSTIC: log key pricing inputs on every fetch
@@ -2274,6 +2318,21 @@ async function fetchYahooOptions(ticker) {
 }
 
 async function fetchYahooOptionsForExpiry(ticker, expiryTs) {
+  // Try local proxy first
+  try {
+    const resp = await fetch(`http://127.0.0.1:8765/?action=options-expiry&ticker=${ticker}&expiry_ts=${expiryTs}`, { signal: AbortSignal.timeout(5000) });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.calls || data.puts) {
+        state.optionChainsByExpiry = state.optionChainsByExpiry || {};
+        state.optionChainsByExpiry[expiryTs] = { calls: data.calls || [], puts: data.puts || [] };
+        return state.optionChainsByExpiry[expiryTs];
+      }
+    }
+  } catch (e) {
+    console.log('[IV] Local proxy not available for per-expiry fetch');
+  }
+  // Fall back to cloud proxy
   const url = `https://query2.finance.yahoo.com/v7/finance/options/${ticker}?date=${expiryTs}`;
   const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
   const res = await fetchWithTimeout(proxy, 15000);
