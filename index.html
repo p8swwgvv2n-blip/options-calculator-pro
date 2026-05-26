@@ -1283,8 +1283,8 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
           <input type="number" id="manual-price" step="0.01" placeholder="如 198.50" />
         </div>
         <div class="form-group">
-          <label for="manual-iv">隐含波动率 IV (%)</label>
-          <input type="number" id="manual-iv" step="0.1" placeholder="如 32.5" />
+          <label for="stock-iv">隐含波动率 IV (%)</label>
+          <input type="number" id="stock-iv" step="0.1" placeholder="如 32.5" />
         </div>
       </div>
     </div>
@@ -3353,12 +3353,14 @@ function calculatePricing() {
   // 5. Term-structure model extrapolated from anchor
   // 6. HV20 × 1.15 (fallback when Yahoo unavailable)
   let iv;
-  const manualIV = parseFloat(document.getElementById('manual-iv')?.value);
+  // Check manual IV inputs — options mode uses #manual-iv, stock mode uses #stock-iv
+  const optIV = parseFloat(document.getElementById('manual-iv')?.value);
+  const stkIV = parseFloat(document.getElementById('stock-iv')?.value);
+  const manualIV = state.manualMode ? stkIV : optIV;
+
   if (!isNaN(manualIV) && manualIV > 0) {
     // User manually entered an IV — always respect it (highest priority)
     iv = manualIV / 100;
-  } else if (state.manualMode) {
-    iv = parseFloat(document.getElementById('manual-iv').value) / 100;
   } else if (state.selectedStrikeIV) {
     iv = state.selectedStrikeIV / 100;
   } else if (expiryTs) {
