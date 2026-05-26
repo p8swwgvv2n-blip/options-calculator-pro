@@ -1837,6 +1837,10 @@ async function fetchData() {
             .map(h => h.close);
         }
 
+        // Always populate 3-year baseline expiry list first (synthetic Friday-aligned)
+        state.expiryDates = [];
+        populateDefaultExpiries();
+
         // Populate options data from proxy
         if (proxyData.options && proxyData.options.chains) {
           const optResult = {
