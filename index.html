@@ -126,6 +126,40 @@ h3 { font-size: 0.875rem; font-weight: 600; letter-spacing: 0; text-transform: n
   font-family: var(--font-mono);
 }
 
+.proxy-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border: 1px solid var(--seed-border);
+  background: var(--seed-surface);
+  color: var(--seed-muted);
+  cursor: default;
+  transition: all 0.3s ease;
+}
+.proxy-status__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--seed-border);
+  transition: background 0.3s ease;
+}
+.proxy-status[data-state="connected"] {
+  border-color: color-mix(in srgb, var(--seed-up) 40%, var(--seed-border));
+  color: var(--seed-fg);
+}
+.proxy-status[data-state="connected"] .proxy-status__dot {
+  background: var(--seed-up);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--seed-up) 60%, transparent);
+}
+.proxy-status[data-state="disconnected"] .proxy-status__dot {
+  background: var(--seed-muted);
+}
+
 .theme-toggle {
   width: 36px; height: 36px;
   border-radius: 0;
@@ -1199,6 +1233,10 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
     <h1>Options Lab</h1>
   </div>
   <div class="app-header__actions">
+    <span class="proxy-status" id="proxy-status" data-state="checking" title="本地代理状态">
+      <span class="proxy-status__dot"></span>
+      <span id="proxy-status-text">检测代理…</span>
+    </span>
     <span class="data-source-tag">Data: Twelve Data / Alpha Vantage / Finnhub</span>
     <button class="theme-toggle" onclick="toggleTheme()" aria-label="切换主题">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
@@ -1608,13 +1646,21 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
           </div>
         </details>
 
+        <!-- Local Proxy Info -->
+        <div id="proxy-info" class="iv-source-tag" style="padding:8px 10px;background:var(--seed-surface);border-left:3px solid var(--seed-primary);margin-bottom:4px;">
+          <strong style="color:var(--seed-fg);">实时期权 IV（推荐）：</strong>
+          双击运行 <code style="font-family:var(--font-mono);font-size:11px;background:var(--seed-bg);padding:1px 4px;">options-proxy-server.py</code>
+          开启本地代理，网页自动获取实时期权 IV 数据，无需手动导入。
+          <span id="proxy-info-status" style="color:var(--seed-muted);"></span>
+        </div>
+
         <!-- Batch IV Import -->
         <details class="manual-iv-toggle" id="batch-import-section">
-          <summary class="manual-iv-toggle__label">批量导入 IV 数据（JSON）</summary>
+          <summary class="manual-iv-toggle__label">离线导入 IV 数据（备选方案）</summary>
           <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">
             <div class="iv-source-tag">
-              从能访问 Yahoo 的电脑导出 IV 数据（预设 AMD/AMZN/GOOGL/UNH/TSLA/AAPL/NVDA/MSFT/META），传到本机后导入即可。
-              方式① 网页版（推荐）：<a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E4%B8%80%E9%94%AE%E5%AF%BC%E5%87%BAIV.html" target="_blank">下载一键导出IV.html</a> → 双击用浏览器打开 → 点击「开始导出」→ 自动下载 JSON。
+              如果本地代理不可用，可通过以下方式离线导入：
+              方式① 网页版：<a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E4%B8%80%E9%94%AE%E5%AF%BC%E5%87%BAIV.html" target="_blank">下载一键导出IV.html</a> → 双击用浏览器打开 → 点击「开始导出」→ 自动下载 JSON。
               方式② Python版：<a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E4%B8%80%E9%94%AE%E5%AF%BC%E5%87%BA%E6%9C%9F%E6%9D%83IV.py" target="_blank">下载一键导出脚本</a> → 双击运行 → 自动生成 JSON。
               定时导出（可选）：<a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E5%AE%9A%E6%97%B6%E5%AF%BC%E5%87%BA%E6%9C%9F%E6%9D%83IV.py" target="_blank">定时脚本</a> + <a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/setup-cron-mac.sh" target="_blank">Mac 安装</a> / <a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/setup-cron-win.bat" target="_blank">Win 安装</a>
             </div>
@@ -1819,6 +1865,68 @@ document.getElementById('ticker-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') fetchData();
 });
 
+/* ========== LOCAL PROXY DETECTION ========== */
+
+const PROXY_BASE = 'http://127.0.0.1:8765';
+let proxyAvailable = false;
+
+async function checkLocalProxy() {
+  const statusEl = document.getElementById('proxy-status');
+  const textEl = document.getElementById('proxy-status-text');
+  const infoStatusEl = document.getElementById('proxy-info-status');
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${PROXY_BASE}/?action=status`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.status === 'ok') {
+        proxyAvailable = true;
+        const proxyMode = data.proxy === 'direct' ? '' : ` (${data.proxy})`;
+        statusEl.dataset.state = 'connected';
+        textEl.textContent = `本地代理已连接${proxyMode}`;
+        if (infoStatusEl) infoStatusEl.textContent = `  ✓ 代理已连接${proxyMode}，查询股票时将自动获取实时 IV。`;
+        console.log('[Proxy] Local proxy connected at', PROXY_BASE, data.proxy || 'direct');
+        return true;
+      }
+    }
+  } catch (e) {
+    // Proxy not running
+  }
+  proxyAvailable = false;
+  statusEl.dataset.state = 'disconnected';
+  textEl.textContent = '本地代理未连接';
+  if (infoStatusEl) infoStatusEl.textContent = '  代理未启动 — 运行 options-proxy-server.py 开启实时数据。';
+  return false;
+}
+
+// Check proxy on page load and periodically
+(async function initProxyCheck() {
+  await checkLocalProxy();
+  // Re-check every 30 seconds
+  setInterval(checkLocalProxy, 30000);
+})();
+
+// Helper: fetch from local proxy
+async function proxyFetch(action, params = {}) {
+  if (!proxyAvailable) throw new Error('Local proxy not available');
+  const qs = new URLSearchParams({ action, ...params }).toString();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch(`${PROXY_BASE}/?${qs}`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    return data;
+  } catch (e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
 /* ========== DATA FETCH ========== */
 
 async function fetchData() {
@@ -1834,6 +1942,42 @@ async function fetchData() {
     { name: 'Alpha Vantage', fn: () => fetchFromAlphaVantage(ticker) },
     { name: 'Finnhub (quote only)', fn: () => fetchFromFinnhub(ticker) },
   ];
+
+  // Add local proxy as fallback if available (can provide both quote and history)
+  if (proxyAvailable) {
+    sources.push({
+      name: 'Local Proxy',
+      fn: async () => {
+        const quoteData = await proxyFetch('quote', { ticker });
+        if (!quoteData.price) throw new Error('No price from proxy');
+        state.currentPrice = quoteData.price;
+        state.previousClose = quoteData.previousClose;
+        state.change = quoteData.change;
+        state.changePct = quoteData.changePercent;
+        state.fiftyTwoWeekHigh = quoteData.fiftyTwoWeekHigh;
+        state.fiftyTwoWeekLow = quoteData.fiftyTwoWeekLow;
+
+        // Try to get history for HV20
+        try {
+          const histData = await proxyFetch('history', { ticker, days: 100 });
+          if (histData.history && histData.history.length > 0) {
+            state.history = histData.history.map(h => ({
+              date: h.date,
+              open: h.open,
+              high: h.high,
+              low: h.low,
+              close: h.close,
+              volume: h.volume,
+            }));
+          }
+        } catch (e) {
+          console.warn('[Data] Proxy history failed:', e.message);
+        }
+
+        updateQuote();
+      }
+    });
+  }
 
   let lastError = null;
   let usedSource = null;
@@ -1864,18 +2008,17 @@ async function fetchData() {
   state.expiryDates = [];
   populateDefaultExpiries();
 
-  // Yahoo options chain (best-effort for IV)
+  // Options chain for IV (local proxy first → cloud CORS proxy fallback)
   // Skip if we already have imported IV data for this ticker — don't overwrite with potentially incomplete cloud data
   const hasImportedIV = state.importedIVData?.tickers?.[ticker];
   if (!hasImportedIV) {
     try {
       const optionsData = await fetchYahooOptions(ticker);
-      // Merge imported chains only if they exist — don't let Yahoo overwrite them
-      const importedChains = state.importedIVData?.tickers?.[ticker] ? {} : null;
       processOptionsData(optionsData);
-      // Restore imported chains if they were overwritten
-      if (importedChains) {
-        // No-op: imported data is already in state.optionChainsByExpiry from populateFromImportedData
+      // Update source tag if proxy was used
+      if (proxyAvailable && usedSource !== 'Local Proxy') {
+        const tagEl2 = document.querySelector('.data-source-tag');
+        if (tagEl2) tagEl2.textContent += ' + Proxy IV';
       }
     } catch (e) {
       console.warn('[IV] Yahoo options chain unavailable:', e.message);
@@ -2296,6 +2439,32 @@ function populateDefaultExpiries() {
 }
 
 async function fetchYahooOptions(ticker) {
+  // Try local proxy first (most reliable, no CORS issues)
+  if (proxyAvailable) {
+    try {
+      console.log('[IV] Trying local proxy for options…');
+      const data = await proxyFetch('options', { ticker });
+      console.log('[IV] Local proxy OK —', (data.expirationDates || []).length, 'expiries');
+      // Convert proxy format to Yahoo-like format for processOptionsData
+      return {
+        optionChain: {
+          result: [{
+            expirationDates: data.expirationDates || [],
+            options: Object.entries(data.chains || {}).map(([ts, chain]) => ({
+              expirationDate: Number(ts),
+              calls: chain.calls || [],
+              puts: chain.puts || [],
+            })),
+            quote: { symbol: data.symbol },
+          }]
+        }
+      };
+    } catch (e) {
+      console.warn('[IV] Local proxy failed:', e.message);
+    }
+  }
+
+  // Fallback: cloud CORS proxy
   const url = `https://query2.finance.yahoo.com/v7/finance/options/${ticker}`;
   const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
   const res = await fetchWithTimeout(proxy, 15000);
@@ -2305,6 +2474,23 @@ async function fetchYahooOptions(ticker) {
 }
 
 async function fetchYahooOptionsForExpiry(ticker, expiryTs) {
+  // Try local proxy first
+  if (proxyAvailable) {
+    try {
+      console.log('[IV] Trying local proxy for expiry', expiryTs);
+      const data = await proxyFetch('options-expiry', { ticker, expiry_ts: expiryTs });
+      if (data.calls || data.puts) {
+        state.optionChainsByExpiry = state.optionChainsByExpiry || {};
+        state.optionChainsByExpiry[expiryTs] = { calls: data.calls || [], puts: data.puts || [] };
+        console.log('[IV] Local proxy OK —', (data.calls || []).length, 'calls,', (data.puts || []).length, 'puts');
+        return state.optionChainsByExpiry[expiryTs];
+      }
+    } catch (e) {
+      console.warn('[IV] Local proxy per-expiry failed:', e.message);
+    }
+  }
+
+  // Fallback: cloud CORS proxy
   const url = `https://query2.finance.yahoo.com/v7/finance/options/${ticker}?date=${expiryTs}`;
   const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
   const res = await fetchWithTimeout(proxy, 15000);
