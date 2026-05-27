@@ -804,6 +804,15 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
   padding: 0 12px 12px;
 }
 
+.iv-data-link:hover {
+  border-color: var(--seed-primary) !important;
+  background: color-mix(in srgb, var(--seed-primary) 6%, var(--seed-surface)) !important;
+}
+.iv-data-link:focus-visible {
+  outline: 2px solid var(--seed-primary);
+  outline-offset: -2px;
+}
+
 /* === STOCK ACTION RECOMMENDATION === */
 .stock-action {
   background: var(--seed-surface);
@@ -1646,30 +1655,29 @@ input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--fo
           </div>
         </details>
 
-        <!-- Local Proxy Info -->
-        <div id="proxy-info" class="iv-source-tag" style="padding:8px 10px;background:var(--seed-surface);border-left:3px solid var(--seed-primary);margin-bottom:4px;">
-          <strong style="color:var(--seed-fg);">实时期权 IV（推荐）：</strong>
-          双击运行 <code style="font-family:var(--font-mono);font-size:11px;background:var(--seed-bg);padding:1px 4px;">options-proxy-server.py</code>
-          开启本地代理，网页自动获取实时期权 IV 数据，无需手动导入。
-          <span id="proxy-info-status" style="color:var(--seed-muted);"></span>
+        <!-- IV Data Source Links -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <a href="local-proxy-guide.html" target="_blank" class="iv-data-link iv-data-link--proxy" style="display:flex;flex-direction:column;gap:4px;padding:12px;background:var(--seed-surface);border:1px solid var(--seed-border);border-left:3px solid var(--seed-primary);text-decoration:none;color:var(--seed-fg);transition:border-color 0.15s;">
+            <span style="font-size:0.8125rem;font-weight:600;">实时 IV（本地代理）</span>
+            <span style="font-size:0.6875rem;color:var(--seed-muted);">运行脚本自动获取 →</span>
+          </a>
+          <a href="batch-import-guide.html" target="_blank" class="iv-data-link iv-data-link--import" style="display:flex;flex-direction:column;gap:4px;padding:12px;background:var(--seed-surface);border:1px solid var(--seed-border);border-left:3px solid var(--seed-accent);text-decoration:none;color:var(--seed-fg);transition:border-color 0.15s;">
+            <span style="font-size:0.8125rem;font-weight:600;">离线导入（备选）</span>
+            <span style="font-size:0.6875rem;color:var(--seed-muted);">导出 JSON 手动导入 →</span>
+          </a>
         </div>
+        <div id="proxy-info-status" class="iv-source-tag" style="margin-bottom:6px;"></div>
 
-        <!-- Batch IV Import -->
+        <!-- Compact Import Area -->
         <details class="manual-iv-toggle" id="batch-import-section">
-          <summary class="manual-iv-toggle__label">离线导入 IV 数据（备选方案）</summary>
+          <summary class="manual-iv-toggle__label">导入 IV 数据文件</summary>
           <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">
-            <div class="iv-source-tag">
-              如果本地代理不可用，可通过以下方式离线导入：
-              方式① 网页版：<a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E4%B8%80%E9%94%AE%E5%AF%BC%E5%87%BAIV.html" target="_blank">下载一键导出IV.html</a> → 双击用浏览器打开 → 点击「开始导出」→ 自动下载 JSON。
-              方式② Python版：<a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E4%B8%80%E9%94%AE%E5%AF%BC%E5%87%BA%E6%9C%9F%E6%9D%83IV.py" target="_blank">下载一键导出脚本</a> → 双击运行 → 自动生成 JSON。
-              定时导出（可选）：<a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E5%AE%9A%E6%97%B6%E5%AF%BC%E5%87%BA%E6%9C%9F%E6%9D%83IV.py" target="_blank">定时脚本</a> + <a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/setup-cron-mac.sh" target="_blank">Mac 安装</a> / <a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/setup-cron-win.bat" target="_blank">Win 安装</a>
-            </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <input type="file" id="iv-import-file" accept=".json" style="flex:1;font-size:13px;" />
               <button class="btn btn--ghost btn--small" onclick="importIVFile()" style="white-space:nowrap;">导入文件</button>
             </div>
             <div style="position:relative;">
-              <textarea id="iv-import-paste" rows="4" placeholder='或粘贴 JSON 内容，格式：{"tickers":{"AMD":{"price":467.51,"expiries":[...]}}}' style="width:100%;font-family:var(--font-mono);font-size:12px;padding:8px;border:1px solid var(--color-border);border-radius:var(--radius-control);background:var(--color-bg-surface);color:var(--color-text-primary);resize:vertical;"></textarea>
+              <textarea id="iv-import-paste" rows="3" placeholder='或粘贴 JSON 内容' style="width:100%;font-family:var(--font-mono);font-size:12px;padding:8px;border:1px solid var(--seed-border);background:var(--seed-surface);color:var(--seed-fg);resize:vertical;"></textarea>
               <button class="btn btn--ghost btn--small" onclick="importIVPaste()" style="position:absolute;bottom:6px;right:6px;font-size:12px;">导入粘贴</button>
             </div>
             <div id="iv-import-status" class="iv-source-tag" style="display:none;"></div>

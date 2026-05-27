@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Options Lab — 本地代理获取实时 IV</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #ffffff; --fg: #161616; --surface: #f4f4f4; --border: #e0e0e0;
+  --muted: #525252; --primary: #0f62fe; --primary-hover: #0043ce;
+  --up: #da1e28; --green: #24a148; --radius: 2px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #161616; --fg: #f4f4f4; --surface: #262626; --border: #393939; --muted: #c6c6c6; --primary: #4589ff; --primary-hover: #78a9ff; --up: #fa4d56; --green: #42be65; }
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'IBM Plex Sans', sans-serif; background: var(--bg); color: var(--fg); line-height: 1.65; padding: 40px 24px; max-width: 720px; margin: 0 auto; }
+h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 8px; }
+h2 { font-size: 1.125rem; font-weight: 600; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 0.9375rem; font-weight: 600; margin: 20px 0 8px; }
+p { margin: 8px 0; color: var(--fg); }
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: 'IBM Plex Mono', monospace; font-size: 0.8125rem; background: var(--surface); padding: 2px 6px; border: 1px solid var(--border); }
+pre { background: var(--surface); border: 1px solid var(--border); padding: 16px; overflow-x: auto; margin: 12px 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.8125rem; line-height: 1.5; }
+.back { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8125rem; color: var(--primary); margin-bottom: 24px; }
+.badge { display: inline-block; padding: 2px 8px; font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; font-family: 'IBM Plex Mono', monospace; }
+.badge--green { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
+.badge--blue { background: color-mix(in srgb, var(--primary) 15%, transparent); color: var(--primary); }
+.step { counter-increment: step; padding: 16px 16px 16px 56px; background: var(--surface); border: 1px solid var(--border); margin: 8px 0; position: relative; }
+.step::before { content: counter(step); position: absolute; left: 16px; top: 16px; width: 28px; height: 28px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.8125rem; font-weight: 600; }
+.step-title { font-weight: 600; margin-bottom: 4px; }
+.step p { margin: 4px 0; font-size: 0.875rem; color: var(--muted); }
+.step pre { margin: 8px 0 4px; }
+.tip { padding: 12px 16px; background: color-mix(in srgb, var(--primary) 8%, var(--surface)); border-left: 3px solid var(--primary); margin: 16px 0; font-size: 0.875rem; }
+.warn { padding: 12px 16px; background: color-mix(in srgb, var(--up) 8%, var(--surface)); border-left: 3px solid var(--up); margin: 16px 0; font-size: 0.875rem; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.8125rem; }
+th { background: var(--surface); padding: 8px 12px; text-align: left; font-weight: 600; border: 1px solid var(--border); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+td { padding: 8px 12px; border: 1px solid var(--border); font-family: 'IBM Plex Mono', monospace; }
+ol { counter-reset: step; list-style: none; padding: 0; }
+footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+
+<a class="back" href="index.html">← 返回 Options Lab</a>
+
+<h1>本地代理 — 实时获取期权 IV 数据</h1>
+<p><span class="badge badge--green">推荐</span> 通过本地代理服务器直接获取 Yahoo Finance 实时期权链数据，无需手动导入。</p>
+
+<h2>工作原理</h2>
+<p>在你的电脑上运行一个轻量 Python 脚本，它会在 <code>127.0.0.1:8765</code> 启动一个本地服务。Options Lab 网页自动检测并连接这个服务，查询股票时直接获取实时期权链和 IV 数据。</p>
+<p>数据全程在本机流转，不经过任何第三方服务器。</p>
+
+<div class="warn">
+  <strong>重要提示：</strong>Yahoo Finance 在中国大陆 IP 已被封锁。如果你的电脑在大陆，需要同时运行 VPN / SS / Clash 等代理软件，让 Python 脚本通过你的代理访问 Yahoo。
+</div>
+
+<h2>快速开始</h2>
+
+<ol>
+  <li class="step">
+    <div class="step-title">下载代理脚本</div>
+    <p>从 GitHub 下载 <code>options-proxy-server.py</code>：</p>
+    <pre><a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/options-proxy-server.py" target="_blank">点击下载 options-proxy-server.py</a></pre>
+  </li>
+
+  <li class="step">
+    <div class="step-title">启动代理（选择适合你的方式）</div>
+    <p><strong>如果你有 Clash（默认端口 7890）：</strong></p>
+    <pre>python3 options-proxy-server.py --proxy socks5://127.0.0.1:7890</pre>
+    <p><strong>如果你有 SS/SSR（默认端口 1080）：</strong></p>
+    <pre>python3 options-proxy-server.py --proxy socks5://127.0.0.1:1080</pre>
+    <p><strong>如果你有 V2Ray（默认端口 10808）：</strong></p>
+    <pre>python3 options-proxy-server.py --proxy socks5://127.0.0.1:10808</pre>
+    <p><strong>如果不确定代理地址，用交互模式：</strong></p>
+    <pre>python3 options-proxy-server.py --ask</pre>
+    <p><strong>如果你在海外（不需要代理）：</strong></p>
+    <pre>python3 options-proxy-server.py</pre>
+  </li>
+
+  <li class="step">
+    <div class="step-title">确认连接成功</div>
+    <p>脚本启动后会自动打开浏览器，显示 <code>{"status": "ok"}</code> 表示服务正常。</p>
+    <p>同时会测试 Yahoo Finance 连接：</p>
+    <pre>✓ Yahoo Finance 连接正常！AAPL 当前价格: $215.32</pre>
+    <p>如果显示 <code>✗ Yahoo Finance 连接失败</code>，请检查代理软件是否已启动、端口是否正确。</p>
+  </li>
+
+  <li class="step">
+    <div class="step-title">打开 Options Lab 网页</div>
+    <p>保持代理窗口运行，打开 Options Lab 主页面。</p>
+    <p>页面顶部会显示 <span class="badge badge--green">本地代理已连接</span>，查询股票时将自动获取实时期权 IV。</p>
+  </li>
+</ol>
+
+<h2>常见代理端口参考</h2>
+<table>
+  <thead><tr><th>代理软件</th><th>SOCKS5 端口</th><th>HTTP 端口</th><th>启动命令</th></tr></thead>
+  <tbody>
+    <tr><td>Clash / Clash Verge</td><td>7890</td><td>7890</td><td><code>--proxy socks5://127.0.0.1:7890</code></td></tr>
+    <tr><td>Shadowsocks / SSR</td><td>1080</td><td>1080</td><td><code>--proxy socks5://127.0.0.1:1080</code></td></tr>
+    <tr><td>V2Ray / V2RayN</td><td>10808</td><td>10809</td><td><code>--proxy socks5://127.0.0.1:10808</code></td></tr>
+    <tr><td>Surge</td><td>6153</td><td>6152</td><td><code>--proxy socks5://127.0.0.1:6153</code></td></tr>
+    <tr><td>Quantumult X</td><td>—</td><td>9090</td><td><code>--proxy http://127.0.0.1:9090</code></td></tr>
+  </tbody>
+</table>
+
+<h2>接口说明</h2>
+<table>
+  <thead><tr><th>接口</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td><code>/?action=status</code></td><td>健康检查</td></tr>
+    <tr><td><code>/?action=quote&ticker=AAPL</code></td><td>实时报价</td></tr>
+    <tr><td><code>/?action=history&ticker=AAPL</code></td><td>历史K线（100天）</td></tr>
+    <tr><td><code>/?action=options&ticker=AAPL</code></td><td>期权链（全部到期日）</td></tr>
+    <tr><td><code>/?action=options-expiry&ticker=AAPL&expiry_ts=xxx</code></td><td>指定到期日的期权链</td></tr>
+    <tr><td><code>/?action=full&ticker=AAPL</code></td><td>报价 + K线 + 期权链</td></tr>
+  </tbody>
+</table>
+
+<div class="tip">
+  <strong>小贴士：</strong>代理启动后保持窗口运行即可，不需要额外操作。关闭终端窗口或按 <code>Ctrl+C</code> 即可停止代理。网页在代理断开时会自动降级为 HV20 估算或使用手动导入数据。
+</div>
+
+<footer>
+  Options Lab · 开发：小石头 · 侵权必究
+</footer>
+
+</body>
+</html>

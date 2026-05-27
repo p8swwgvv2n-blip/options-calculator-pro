@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Options Lab — 离线导入 IV 数据</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #ffffff; --fg: #161616; --surface: #f4f4f4; --border: #e0e0e0;
+  --muted: #525252; --primary: #0f62fe; --primary-hover: #0043ce;
+  --up: #da1e28; --green: #24a148; --radius: 2px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #161616; --fg: #f4f4f4; --surface: #262626; --border: #393939; --muted: #c6c6c6; --primary: #4589ff; --primary-hover: #78a9ff; --up: #fa4d56; --green: #42be65; }
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'IBM Plex Sans', sans-serif; background: var(--bg); color: var(--fg); line-height: 1.65; padding: 40px 24px; max-width: 720px; margin: 0 auto; }
+h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 8px; }
+h2 { font-size: 1.125rem; font-weight: 600; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 0.9375rem; font-weight: 600; margin: 20px 0 8px; }
+p { margin: 8px 0; color: var(--fg); }
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: 'IBM Plex Mono', monospace; font-size: 0.8125rem; background: var(--surface); padding: 2px 6px; border: 1px solid var(--border); }
+pre { background: var(--surface); border: 1px solid var(--border); padding: 16px; overflow-x: auto; margin: 12px 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.8125rem; line-height: 1.5; }
+.back { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8125rem; color: var(--primary); margin-bottom: 24px; }
+.badge { display: inline-block; padding: 2px 8px; font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; font-family: 'IBM Plex Mono', monospace; }
+.badge--yellow { background: color-mix(in srgb, #f1c21b 20%, transparent); color: #8e6a00; }
+.badge--blue { background: color-mix(in srgb, var(--primary) 15%, transparent); color: var(--primary); }
+.step { counter-increment: step; padding: 16px 16px 16px 56px; background: var(--surface); border: 1px solid var(--border); margin: 8px 0; position: relative; }
+.step::before { content: counter(step); position: absolute; left: 16px; top: 16px; width: 28px; height: 28px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.8125rem; font-weight: 600; }
+.step-title { font-weight: 600; margin-bottom: 4px; }
+.step p { margin: 4px 0; font-size: 0.875rem; color: var(--muted); }
+.step pre { margin: 8px 0 4px; }
+.tip { padding: 12px 16px; background: color-mix(in srgb, var(--primary) 8%, var(--surface)); border-left: 3px solid var(--primary); margin: 16px 0; font-size: 0.875rem; }
+.warn { padding: 12px 16px; background: color-mix(in srgb, var(--up) 8%, var(--surface)); border-left: 3px solid var(--up); margin: 16px 0; font-size: 0.875rem; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.8125rem; }
+th { background: var(--surface); padding: 8px 12px; text-align: left; font-weight: 600; border: 1px solid var(--border); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+td { padding: 8px 12px; border: 1px solid var(--border); }
+td.mono { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; }
+ol { counter-reset: step; list-style: none; padding: 0; }
+.tabs { display: flex; gap: 0; border: 1px solid var(--border); margin: 16px 0 0; }
+.tab { flex: 1; padding: 10px 16px; text-align: center; font-size: 0.8125rem; font-weight: 500; cursor: pointer; background: var(--surface); border-right: 1px solid var(--border); transition: background 0.15s; }
+.tab:last-child { border-right: none; }
+.tab.active { background: var(--fg); color: var(--bg); }
+.tab-content { display: none; padding: 16px 0; }
+.tab-content.active { display: block; }
+footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+
+<a class="back" href="index.html">← 返回 Options Lab</a>
+
+<h1>离线导入 — 批量获取 IV 数据</h1>
+<p><span class="badge badge--yellow">备选方案</span> 通过本地工具导出 IV 数据为 JSON 文件，再手动导入到 Options Lab 网页。适合不方便运行代理的场景。</p>
+
+<div class="tip">
+  <strong>与本地代理的区别：</strong>本地代理是实时获取数据（推荐），离线导入是定时导出后手动加载。导入的数据在网页不刷新的情况下一直有效，不会被后续查询覆盖。
+</div>
+
+<h2>选择导出工具</h2>
+
+<div class="tabs" id="tabs">
+  <div class="tab active" onclick="switchTab('html')">网页版（推荐）</div>
+  <div class="tab" onclick="switchTab('python')">Python 版</div>
+  <div class="tab" onclick="switchTab('cron')">定时导出</div>
+</div>
+
+<!-- TAB 1: HTML Export -->
+<div class="tab-content active" id="tab-html">
+  <h3>一键导出 IV（网页版）</h3>
+  <p>无需安装 Python，双击 HTML 文件在浏览器中打开即可导出。</p>
+
+  <ol>
+    <li class="step">
+      <div class="step-title">下载导出工具</div>
+      <p><a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E4%B8%80%E9%94%AE%E5%AF%BC%E5%87%BAIV.html" target="_blank">点击下载 一键导出IV.html</a></p>
+    </li>
+    <li class="step">
+      <div class="step-title">双击用浏览器打开</div>
+      <p>下载后双击文件，浏览器会自动打开导出页面。</p>
+    </li>
+    <li class="step">
+      <div class="step-title">点击「开始导出」</div>
+      <p>预设 9 只热门股票（AMD / AMZN / GOOGL / UNH / TSLA / AAPL / NVDA / MSFT / META），点击按钮即可自动获取并下载 JSON 文件。</p>
+    </li>
+    <li class="step">
+      <div class="step-title">导入到 Options Lab</div>
+      <p>打开 Options Lab 主页面 → 展开「离线导入 IV 数据」→ 选择刚下载的 JSON 文件 → 点击「导入文件」。</p>
+    </li>
+  </ol>
+
+  <div class="warn">
+    <strong>注意：</strong>此网页版导出工具需要在能访问 Yahoo Finance 的网络环境下使用（海外 IP 或通过代理）。如果你在大陆且无法直接访问 Yahoo，请使用 Python 版并配置代理。
+  </div>
+</div>
+
+<!-- TAB 2: Python Export -->
+<div class="tab-content" id="tab-python">
+  <h3>一键导出（Python 版）</h3>
+  <p>双击即可运行的 Python 脚本，无需命令行输入。</p>
+
+  <ol>
+    <li class="step">
+      <div class="step-title">下载脚本</div>
+      <p><a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E4%B8%80%E9%94%AE%E5%AF%BC%E5%87%BA%E6%9C%9F%E6%9D%83IV.py" target="_blank">点击下载 一键导出期权IV.py</a></p>
+    </li>
+    <li class="step">
+      <div class="step-title">双击运行</div>
+      <p>脚本会自动导出预设 9 只股票的期权 IV 数据，生成 <code>iv-data-YYYYMMDD.json</code> 文件。</p>
+      <p>如果需要自定义股票列表，在终端运行：</p>
+      <pre>python3 一键导出期权IV.py</pre>
+    </li>
+    <li class="step">
+      <div class="step-title">导入到 Options Lab</div>
+      <p>同网页版，将 JSON 文件导入到主页面即可。</p>
+    </li>
+  </ol>
+</div>
+
+<!-- TAB 3: Scheduled Export -->
+<div class="tab-content" id="tab-cron">
+  <h3>定时自动导出</h3>
+  <p>设置定时任务，每天自动导出最新 IV 数据。</p>
+
+  <ol>
+    <li class="step">
+      <div class="step-title">下载所需文件</div>
+      <table>
+        <thead><tr><th>文件</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/%E5%AE%9A%E6%97%B6%E5%AF%BC%E5%87%BA%E6%9C%9F%E6%9D%83IV.py" target="_blank">定时导出期权IV.py</a></td><td>静默模式的导出脚本</td></tr>
+          <tr><td><a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/setup-cron-mac.sh" target="_blank">setup-cron-mac.sh</a></td><td>Mac 一键安装定时任务</td></tr>
+          <tr><td><a href="https://raw.githubusercontent.com/p8swwgvv2n-blip/options-calculator-pro/main/setup-cron-win.bat" target="_blank">setup-cron-win.bat</a></td><td>Windows 一键安装定时任务</td></tr>
+        </tbody>
+      </table>
+    </li>
+    <li class="step">
+      <div class="step-title">安装定时任务</div>
+      <p><strong>Mac：</strong>双击 <code>setup-cron-mac.sh</code>，自动添加每天 9:00 AM 的 crontab 任务。</p>
+      <p><strong>Windows：</strong>右键 → 以管理员身份运行 <code>setup-cron-win.bat</code>，自动在任务计划程序中创建定时任务。</p>
+    </li>
+    <li class="step">
+      <div class="step-title">导入数据</div>
+      <p>定时任务会在指定目录生成 JSON 文件，每天打开 Options Lab 导入即可。</p>
+    </li>
+  </ol>
+</div>
+
+<h2>导入方式</h2>
+<p>在 Options Lab 主页面的「离线导入 IV 数据」区域，支持两种导入方式：</p>
+
+<table>
+  <thead><tr><th>方式</th><th>操作</th></tr></thead>
+  <tbody>
+    <tr><td><strong>文件导入</strong></td><td>选择导出的 JSON 文件，点击「导入文件」</td></tr>
+    <tr><td><strong>粘贴导入</strong></td><td>打开 JSON 文件，复制全部内容粘贴到文本框，点击「导入粘贴」</td></tr>
+  </tbody>
+</table>
+
+<h2>数据格式</h2>
+<p>导入的 JSON 格式如下（由导出工具自动生成）：</p>
+<pre>{
+  "version": 1,
+  "generatedAt": "2026-05-27T10:30:00",
+  "tickers": {
+    "AAPL": {
+      "symbol": "AAPL",
+      "price": 215.32,
+      "timestamp": 1748332200,
+      "expiries": [
+        {
+          "date": "2026-05-30",
+          "timestamp": 1748577600,
+          "calls": [{ "strike": 215, "iv": 28.5, ... }],
+          "puts":  [{ "strike": 215, "iv": 29.1, ... }]
+        }
+      ]
+    }
+  }
+}</pre>
+
+<div class="tip">
+  <strong>数据持久性：</strong>导入的数据在网页不刷新的情况下一直有效。切换到已导入的股票时，会自动使用导入的 IV 数据，不会被后续查询覆盖。刷新页面后数据会丢失，需要重新导入。
+</div>
+
+<footer>
+  Options Lab · 开发：小石头 · 侵权必究
+</footer>
+
+<script>
+function switchTab(id) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-' + id).classList.add('active');
+}
+</script>
+
+</body>
+</html>
