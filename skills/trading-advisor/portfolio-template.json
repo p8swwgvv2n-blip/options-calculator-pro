@@ -58,5 +58,63 @@
     "NVDA": 20,
     "SPY": 10,
     "cash": 15
-  }
+  },
+  "trades": [
+    {
+      "ticker": "AAPL",
+      "type": "stock",
+      "direction": "long",
+      "entryDate": "2024-01-15",
+      "entryPrice": 180.50,
+      "exitDate": "2024-03-10",
+      "exitPrice": 195.30,
+      "shares": 50,
+      "pnl": 740,
+      "pnlPct": 8.2,
+      "holdDays": 55,
+      "reason": "MACD金叉买入，止盈卖出"
+    },
+    {
+      "ticker": "TSLA",
+      "type": "option",
+      "direction": "long call",
+      "entryDate": "2024-02-01",
+      "entryPrice": 12.50,
+      "exitDate": "2024-02-28",
+      "exitPrice": 8.20,
+      "contracts": 2,
+      "pnl": -860,
+      "pnlPct": -34.4,
+      "holdDays": 27,
+      "reason": "时间价值衰减，止损卖出"
+    },
+    {
+      "ticker": "NVDA",
+      "type": "stock",
+      "direction": "long",
+      "entryDate": "2024-01-20",
+      "entryPrice": 620.00,
+      "exitDate": "2024-04-15",
+      "exitPrice": 880.00,
+      "shares": 30,
+      "pnl": 7800,
+      "pnlPct": 41.9,
+      "holdDays": 86,
+      "reason": "AI主题趋势持仓，目标价止盈"
+    },
+    {
+      "ticker": "META",
+      "type": "stock",
+      "direction": "long",
+      "entryDate": "2024-03-05",
+      "entryPrice": 510.00,
+      "exitDate": "2024-03-20",
+      "exitPrice": 485.00,
+      "shares": 20,
+      "pnl": -500,
+      "pnlPct": -4.9,
+      "holdDays": 15,
+      "reason": "追涨买入，回调止损"
+    }
+  ]
 }
