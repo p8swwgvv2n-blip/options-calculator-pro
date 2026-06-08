@@ -1,0 +1,51 @@
+{
+  "lastUpdated": "2026-06-08",
+  "positions": [
+    {
+      "ticker": "AAPL",
+      "type": "stock",
+      "shares": 100,
+      "avgCost": 185.50,
+      "addedDate": "2024-01-15",
+      "notes": "长线持有"
+    },
+    {
+      "ticker": "TSLA",
+      "type": "option",
+      "optionType": "call",
+      "strike": 200,
+      "expiry": "2024-06-21",
+      "contracts": 2,
+      "avgCost": 15.30,
+      "addedDate": "2024-03-10",
+      "notes": "财报前博弈"
+    },
+    {
+      "ticker": "NVDA",
+      "type": "stock",
+      "shares": 50,
+      "avgCost": 880.00,
+      "addedDate": "2024-02-20",
+      "notes": "AI主题"
+    },
+    {
+      "ticker": "SPY",
+      "type": "option",
+      "optionType": "put",
+      "strike": 500,
+      "expiry": "2024-07-19",
+      "contracts": 1,
+      "avgCost": 8.50,
+      "addedDate": "2024-05-01",
+      "notes": "对冲保护"
+    }
+  ],
+  "watchlist": [
+    "AMD", "AMZN", "GOOGL", "META", "MSFT"
+  ],
+  "account": {
+    "totalValue": 50000,
+    "availableCash": 15000,
+    "marginUsed": 0
+  }
+}
