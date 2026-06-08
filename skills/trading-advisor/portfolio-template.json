@@ -46,6 +46,17 @@
   "account": {
     "totalValue": 50000,
     "availableCash": 15000,
-    "marginUsed": 0
+    "marginUsed": 0,
+    "riskTolerance": "medium",
+    "targetCashPct": 15,
+    "maxSinglePositionPct": 20,
+    "maxSectorPct": 40
+  },
+  "targets": {
+    "AAPL": 15,
+    "TSLA": 10,
+    "NVDA": 20,
+    "SPY": 10,
+    "cash": 15
   }
 }
